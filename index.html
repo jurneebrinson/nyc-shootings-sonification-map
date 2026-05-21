@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>NYC Shootings Sonification Map</title>
+
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+  <script src="https://unpkg.com/tone@14.8.49/build/Tone.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Cormorant+Garamond:wght@500;600&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Inter', sans-serif;
+      overflow: hidden;
+    }
+  
+    #map {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 100%;
+    }
+  
+    #ui {
+      position: absolute;
+      z-index: 2;
+  
+      top: 15px;
+      left: 15px;
+  
+      width: 340px;
+  
+      padding: 18px;
+  
+      background: rgba(10,10,10,0.78);
+  
+      backdrop-filter: blur(10px);
+  
+      border: 1px solid rgba(255,255,255,0.08);
+  
+      border-radius: 14px;
+  
+      color: white;
+  
+      font-family: 'Inter', sans-serif;
+  
+      box-shadow: 0 0 30px rgba(0,0,0,0.35);
+    }
+  
+    button {
+      background: rgba(255,255,255,0.06);
+  
+      color: white;
+  
+      border: 1px solid rgba(255,255,255,0.12);
+  
+      border-radius: 8px;
+  
+      padding: 8px 12px;
+  
+      cursor: pointer;
+  
+      font-family: 'Inter', sans-serif;
+      font-weight: 500;
+  
+      transition: 0.2s ease;
+    }
+  
+    button:hover {
+      background: rgba(255,255,255,0.12);
+      transform: translateY(-1px);
+    }
+  
+    button:active {
+      transform: translateY(1px);
+    }
+  
+    input[type="range"] {
+      width: 100%;
+      margin-top: 6px;
+    }
+  
+    .label {
+      margin-top: 14px;
+      font-size: 14px;
+      color: #bbbbbb;
+      font-family: 'Inter', sans-serif;
+    }
+  
+    #project-title {
+      font-family: 'Cormorant Garamond', serif;
+
+      font-size: 34px;
+      font-weight: 600;
+
+      line-height: 1.1;
+
+      margin-bottom: 18px;
+
+      color: white;
+    }
+
+    #selected-borough {
+      font-size: 24px;
+      margin-bottom: 12px;
+      font-family: 'Cormorant Garamond', serif;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+  
+    #currentMonth {
+      margin-top: 14px;
+      font-size: 18px;
+      color: #cccccc;
+      font-family: 'Inter', sans-serif;
+    }
+
+    #aboutOverlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.75);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+    }
+
+    #aboutCard {
+      width: 90%;
+      max-width: 700px;
+      max-height: 85vh;   /* key fix */
+      overflow-y: auto;   /* key fix */
+
+      background: rgba(15,15,15,0.95);
+      padding: 24px;
+      border-radius: 14px;
+      color: white;
+      font-family: 'Inter', sans-serif;
+    }
+
+    #aboutCard {
+      scroll-behavior: smooth;
+    }
+
+    #aboutCard h1 {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 36px;
+      margin-top: 0;
+    }
+
+    #aboutCard p {
+      line-height: 1.6;
+      color: #cccccc;
+    }
+
+    #closeAbout {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+    }
+
+    #aboutCard a {
+      color: #8ecbff;
+      text-decoration: none;
+    }
+
+    #aboutCard a:hover {
+      text-decoration: underline;
+    }
+
+    .top-buttons {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div id="ui">
+
+    <div id="project-title">
+      NYC Shootings Sonification Map
+    </div>
+
+    <div id="selected-borough">
+      Select a borough
+    </div>
+    
+    <div class="top-buttons">
+
+      <button onclick="openAbout()">
+        About
+      </button>
+    
+      <button onclick="resetMap()">
+        Reset Map
+      </button>
+    
+    </div>
+
+    <div class="label">
+      BPM: <span id="bpmValue">90</span>
+      <input id="bpmSlider" type="range" min="30" max="180" value="90">
+    </div>
+    
+    <button id="playBtn" onclick="togglePlayback()">
+      ▶ Play
+    </button>
+    
+    <div class="label">
+      Timeline
+      <input id="timeline" type="range" min="0" step="1" value="0">
+    </div>
+    
+    <div id="currentMonth">
+      Current Month: Not Started
+  </div>
+
+</div>
+
+<!-- ABOUT OVERLAY -->
+<div id="aboutOverlay">
+
+  <div id="aboutCard">
+
+    <button id="closeAbout" onclick="closeAbout()">✕</button>
+  
+    <h1>NYC Shootings Sonification Map</h1>
+  
+    <p>
+      This project explores how sound and spatial visualization can reveal patterns in public violence data that may be overlooked through charts or statistics alone.
+    </p>
+  
+    <p>
+      Monthly shooting incidents across New York City are translated into sound using borough-specific synthesized instruments. Pitch reflects incident frequency (where higher pitch indicates more shooting incidents), while animated incident points and centroids trace the geographic distribution of shootings over time.
+    </p>
+  
+    <p>
+      To emphasize periods of unusually high activity, a threshold-based percussive “shell hit” sound is introduced when monthly incidents exceed the citywide average (~50 incidents). The intensity of this sound increases as values rise further above the threshold, creating an additional auditory signal of elevated activity.
+    </p>
+
+    <p>
+      The interface is designed as both an analytical and reflective listening experience, encouraging users to navigate the data temporally, spatially, and sonically.
+    </p>
+  
+    <h2>How to Use</h2>
+
+    <p>
+      Click a borough to focus the visualization and sonification.  Use the Play button to hear the data unfold over time, or scrub the timeline to jump to specific months.
+    </p>
+
+    <p>
+      Created by Jurnee Brinson
+    </p>
+  
+    <p>
+      Built with Mapbox GL JS, Tone.js, Turf.js, and GeoJSON using NYPD shooting incident data.
+    </p>
+    
+    <p>
+      Data source:
+      <a
+        href="https://data.cityofnewyork.us/Public-Safety/Shootings-2006-Present-/5ucz-vwe8/about_data"
+        target="_blank"
+      >
+        NYPD Shootings (2006-Present) Dataset
+      </a>
+    </p>
+  </div>
+
+</div>
+
+<div id="map"></div>
+
+<script>
+mapboxgl.accessToken = "pk.eyJ1IjoianVybmVlYiIsImEiOiJjbW9oeGI5MjIwMGptMnJxNGc3NTVrcWxkIn0.2LGXSIhl1qsvu5D07kU6Ig"; // ← paste Mapbox token here
+
+let popup;
+let selectedBorough = null;
+
+let monthlyGroups = {};
+let incidentGroups = {};
+let monthKeys = [];
+
+let playbackIndex = 0;
+let isPlaying = false;
+let bpm = 90;
+
+let activeFeatures = [];
+let activeCentroids = [];
+let synths = {};
+
+let transportReady = false;
+let isPaused = false;
+let wasPlayingBeforeScrub = false;
+let isScrubbing = false;
+let shellHit;
+const SHELL_THRESHOLD = 50;
+const MAX_REF = 120; // helps normalize scaling
+
+window.addEventListener("DOMContentLoaded", () => {
+  const slider = document.getElementById("bpmSlider");
+  const label = document.getElementById("bpmValue");
+  const timeline = document.getElementById("timeline");
+
+  slider.addEventListener("input", (e) => {
+    bpm = parseInt(e.target.value);
+    Tone.Transport.bpm.value = bpm;
+
+    label.innerText = bpm;
+  });
+
+
+  // Timeline control
+  timeline.addEventListener("pointerdown", beginScrub);
+  timeline.addEventListener("input", (e) => {
+    scrubTo(parseInt(e.target.value, 10));
+  });
+  timeline.addEventListener("pointerup", endScrub);
+  timeline.addEventListener("change", endScrub);
+});
+
+// 🎧 Tone.js must be started after user interaction
+async function initAudio() {
+  await Tone.start();
+
+  const reverb = new Tone.Reverb({
+    decay: 8,
+    wet: 0.35
+  }).toDestination();
+
+  const statenFilter = new Tone.Filter(250, "highpass");
+  const statenVerb = new Tone.Reverb({
+    decay: 7,
+    wet: 0.3
+  }).toDestination();
+
+  statenFilter.connect(statenVerb);
+
+  const manhattanChorus = new Tone.Chorus(4, 2.5, 0.2).connect(reverb).start();
+
+  const boroughPitchOffset = {
+    MANHATTAN: 0,
+    BRONX: 0,
+    BROOKLYN: 0,
+    QUEENS: 12,        // +1 octave
+    "STATEN ISLAND": 12 // or 24 if you want it more present
+  };
+
+  shellHit = new Tone.NoiseSynth({
+    noise: { type: "white" },
+    envelope: {
+      attack: 0.001,
+      decay: 0.12,
+      sustain: 0
+    }
+  }).toDestination();
+
+  synths = {
+
+    MANHATTAN: new Tone.Synth({
+      oscillator: {
+        type: "triangle"
+      },
+      envelope: {
+        attack: 0.01,
+        decay: 0.25,
+        sustain: 0.3,
+        release: 0.6
+      }
+    }).connect(manhattanChorus),
+
+    BRONX: new Tone.MembraneSynth({
+      pitchDecay: 0.03,
+      octaves: 6,
+      envelope: {
+        attack: 0.001,
+        decay: 0.3,
+        sustain: 0.05,
+        release: 0.5
+      }
+    }).toDestination(),
+
+    BROOKLYN: new Tone.FMSynth({
+      harmonicity: 4,
+      modulationIndex: 12,
+      oscillator: {
+        type: "triangle"
+      },
+      envelope: {
+        attack: 0.03,
+        decay: 0.25,
+        sustain: 0.4,
+        release: 1.2
+      }
+    }).connect(reverb),
+
+    QUEENS: new Tone.AMSynth({
+      harmonicity: 1,
+      volume: 3,
+      envelope: {
+        attack: 0.25,
+        decay: 0.4,
+        sustain: 0.5,
+        release: 2.8
+      }
+    }).connect(reverb),
+
+    "STATEN ISLAND": new Tone.Synth({
+      oscillator: {
+        type: "sine"
+      },
+      volume: 6,   // add gain boost
+      envelope: {
+        attack: 0.1,
+        decay: 0.4,
+        sustain: 0.4,
+        release: 0.75
+      }
+    }).connect(statenFilter)
+
+  };
+}
+
+const map = new mapboxgl.Map({
+  container: "map",
+  style: "mapbox://styles/mapbox/dark-v11",
+  center: [-74.0, 40.72], // NYC
+  zoom: 10
+});
+
+map.on("load", () => {
+
+popup = new mapboxgl.Popup({
+  closeButton: false,
+  closeOnClick: false,
+  offset: 10
+});
+
+// Borough information
+map.addSource("boroughs", {
+  type: "geojson",
+  data: "data/boroughs.geojson"
+});
+
+// Shootings information
+map.addSource("shootings", {
+  type: "geojson",
+  data: "data/shootings.geojson"
+});
+
+// Borough base layer
+map.addLayer({
+  id: "borough-fill",
+  type: "fill",
+  source: "boroughs",
+  paint: {
+    "fill-color": "#888",
+    "fill-opacity": 0.1
+  }
+});
+
+// Borough hover glow layer
+map.addLayer({
+  id: "borough-hover",
+  type: "fill",
+  source: "boroughs",
+  paint: {
+    "fill-color": "#00ffff",
+    "fill-opacity": 0.25
+  },
+  filter: ["==", "borocode", ""]
+});
+
+// Hover glow on mouse location logic
+map.on("mousemove", "borough-fill", (e) => {
+  if (selectedBorough) return;
+  map.getCanvas().style.cursor = "pointer";
+
+  const code = e.features[0].properties.borocode;
+
+  const names = {
+    "1": "Manhattan",
+    "2": "Bronx",
+    "3": "Brooklyn",
+    "4": "Queens",
+    "5": "Staten Island"
+  };
+
+  const name = names[code];
+
+  // tooltip
+  popup.setLngLat(e.lngLat)
+    .setHTML(`<strong>${name}</strong>`)
+    .addTo(map);
+
+  // UI label
+  if (!selectedBorough) {
+  document.getElementById("selected-borough").innerText = name;
+}
+
+  // hover glow
+  map.setFilter("borough-hover", ["==", "borocode", code]);
+});
+
+map.on("mouseleave", "borough-fill", () => {
+  map.getCanvas().style.cursor = "";
+  popup.remove();
+  map.setFilter("borough-hover", ["==", "borocode", ""]);
+
+  // only reset text if nothing is selected
+  if (!selectedBorough) {
+    document.getElementById("selected-borough").innerText =
+      "Select a borough";
+  }
+});
+
+// Click and zoom logic
+map.on("click", "borough-fill", (e) => {
+  const feature = e.features[0];
+  const code = feature.properties.borocode;
+
+  const dataNames = {
+  "1": "MANHATTAN",
+  "2": "BRONX",
+  "3": "BROOKLYN",
+  "4": "QUEENS",
+  "5": "STATEN ISLAND"
+};
+
+  const displayNames = {
+  "1": "Manhattan",
+  "2": "Bronx",
+  "3": "Brooklyn",
+  "4": "Queens",
+  "5": "Staten Island"
+};
+
+const selected = dataNames[code];        // used for filtering
+const display = displayNames[code];      // used for UI
+
+selectedBorough = selected;
+
+  // 🔴 FILTER SHOOTING POINTS
+  map.setFilter("shootings-layer", [
+    "==",
+    ["get", "borough"],
+    selected
+  ]);
+
+  // 🔵 ZOOM TO BOROUGH
+  const bbox = turf.bbox(feature); // needs Turf.js
+  map.fitBounds(bbox, {
+    padding: 40,
+    duration: 1000
+  });
+
+  // UI update
+  document.getElementById("selected-borough").innerText =
+    `Selected: ${display}`;
+});
+
+// Shooting points layer
+map.addLayer({
+  id: "shootings-layer",
+  type: "circle",
+  source: "shootings",
+  paint: {
+    "circle-radius": 3,
+    "circle-color": [
+      "match",
+      ["get", "borough"],
+      "MANHATTAN", "#ff4d4d",
+      "BROOKLYN", "#4dd2ff",
+      "QUEENS", "#7dff4d",
+      "BRONX", "#ffb84d",
+      "STATEN ISLAND", "#d24dff",
+      "#ffffff"
+    ],
+    "circle-opacity": 0.6
+  }
+});
+
+// hide static incidents
+map.setLayoutProperty("shootings-layer", "visibility", "visible");
+
+map.addSource("playback-points", {
+  type: "geojson",
+  data: {
+    type: "FeatureCollection",
+    features: []
+  }
+});
+
+map.getSource("playback-points")?.setData({
+  type: "FeatureCollection",
+  features: []
+});
+
+map.addLayer({
+  id: "playback-layer",
+  type: "circle",
+  source: "playback-points",
+  paint: {
+  "circle-radius": 3,
+
+  "circle-color": [
+    "match",
+    ["get", "borough"],
+    "MANHATTAN", "#ff4d4d",
+    "BROOKLYN", "#4dd2ff",
+    "QUEENS", "#7dff4d",
+    "BRONX", "#ffb84d",
+    "STATEN ISLAND", "#d24dff",
+    "#ffffff"
+  ],
+
+  "circle-opacity": [
+    "interpolate",
+    ["linear"],
+    ["get", "age"],
+    0, 0.45,
+    2, 0.32,
+    4, 0.18,
+    6, 0.08,
+    8, 0
+  ]
+  }
+});
+
+map.addSource("centroids", {
+  type: "geojson",
+  data: {
+    type: "FeatureCollection",
+    features: []
+  }
+});
+
+map.addLayer({
+  id: "centroid-layer",
+  type: "circle",
+  source: "centroids",
+  paint: {
+    "circle-radius": 7,
+    "circle-color": "#ffffff",
+    "circle-opacity": [
+      "interpolate",
+      ["linear"],
+      ["get", "age"],
+      0, 0.95,
+      2, 0.6,
+      4, 0.3,
+      6, 0
+    ]
+  }
+});
+
+fetch("data/shootings_monthly.geojson")
+  .then(res => res.json())
+  .then(data => {
+
+    const grouped = {};
+
+    data.features.forEach(f => {
+      const date = new Date(f.properties.datetime);
+
+      const t =
+        date.getFullYear() + "-" +
+        String(date.getMonth() + 1).padStart(2, "0");
+
+      if (!grouped[t]) grouped[t] = [];
+
+      grouped[t].push({
+        borough: f.properties.borough,
+        count: f.properties.count,
+        coords: f.geometry.coordinates,
+        time: new Date(t)
+      });
+    });
+
+    monthlyGroups = grouped;
+    monthKeys = Object.keys(grouped).sort();
+
+    const timeline = document.getElementById("timeline");
+    timeline.max = monthKeys.length - 1;
+
+    console.log("Months:", monthKeys.length);
+  });
+
+
+  fetch("data/shootings.geojson")
+  .then(res => res.json())
+  .then(data => {
+
+    const grouped = {};
+
+    data.features.forEach(f => {
+
+      // support BOTH formats safely
+      const raw =
+        f.properties.OCCUR_DATE ||
+        f.properties.datetime;
+
+      if (!raw) return;
+
+      const date = new Date(raw);
+
+      if (isNaN(date)) return;
+
+      const key =
+        date.getFullYear() + "-" +
+        String(date.getMonth() + 1).padStart(2, "0");
+
+      if (!grouped[key]) grouped[key] = [];
+
+      grouped[key].push({
+        borough: f.properties.borough,
+        coords: f.geometry.coordinates
+      });
+    });
+
+    incidentGroups = grouped;
+
+    console.log("Incident months loaded");
+    console.log("Sample:", grouped["2006-01"]);
+  });
+
+});
+
+function countToPitch(count) {
+  const minMidi = 48;  // C3
+  const maxMidi = 84;  // C6
+
+  const clamped = Math.min(120, count);
+  const midi = minMidi + (clamped / 120) * (maxMidi - minMidi);
+
+  return Tone.Frequency(midi, "midi").toNote();
+}
+
+function triggerShellHit(count) {
+  if (count <= SHELL_THRESHOLD) return;
+
+  // how far above threshold are we?
+  const excess = count - SHELL_THRESHOLD;
+
+  // normalize 0 → 1
+  const velocity = Math.min(excess / (MAX_REF - SHELL_THRESHOLD), 1);
+
+  // map to amplitude (Tone uses dB)
+  const volume = -30 + velocity * 25; // quiet → loud
+
+  shellHit.volume.value = volume;
+
+  shellHit.triggerAttackRelease("16n");
+}
+
+function addMonthPoints(monthIncidents) {
+
+// age existing points
+activeFeatures.forEach(f => {
+  f.properties.age += 1;
+});
+
+// remove old points after 6 months
+activeFeatures = activeFeatures.filter(
+  f => f.properties.age <= 6
+);
+
+// add NEW month incidents
+monthIncidents.forEach(d => {
+
+  activeFeatures.push({
+    type: "Feature",
+    properties: {
+      borough: d.borough,
+      age: 0
+    },
+    geometry: {
+      type: "Point",
+      coordinates: d.coords
+    }
+  });
+
+});
+
+}
+
+
+function updateCentroids(monthData) {
+
+// age old centroids
+activeCentroids.forEach(f => {
+  f.properties.age += 1;
+});
+
+// remove after 6 months
+activeCentroids = activeCentroids.filter(
+  f => f.properties.age <= 6
+);
+
+// add current month centroids
+monthData.forEach(d => {
+
+  activeCentroids.push({
+    type: "Feature",
+    properties: {
+      borough: d.borough,
+      age: 0
+    },
+    geometry: {
+      type: "Point",
+      coordinates: d.coords
+    }
+  });
+
+});
+
+// update source
+const centroidSource = map.getSource("centroids");
+
+if (!centroidSource) return;
+
+centroidSource.setData({
+  type: "FeatureCollection",
+  features: [...activeCentroids]
+});
+}
+
+function updateMapPoints() {
+
+const src = map.getSource("playback-points");
+
+if (!src) return;
+
+src.setData({
+  type: "FeatureCollection",
+  features: [...activeFeatures]
+});
+}
+
+function rebuildStateUpTo(index) {
+  activeFeatures = [];
+  activeCentroids = [];
+
+  for (let i = 0; i <= index; i++) {
+    const key = monthKeys[i];
+    const { incidentData: incidents, centroidData: centroids } =
+      getFilteredMonthData(key);
+
+    // AGE EXISTING POINTS
+    activeFeatures.forEach(f => f.properties.age++);
+
+    // REMOVE OLD ONES
+    activeFeatures = activeFeatures.filter(f => f.properties.age <= 6);
+
+    // ADD NEW ONES
+    incidents.forEach(d => {
+      activeFeatures.push({
+        type: "Feature",
+        properties: {
+          borough: d.borough,
+          age: 0
+        },
+        geometry: {
+          type: "Point",
+          coordinates: d.coords
+        }
+      });
+    });
+
+    // CENTROIDS (same idea if you want persistence)
+    activeCentroids.forEach(f => f.properties.age++);
+    activeCentroids = activeCentroids.filter(f => f.properties.age <= 6);
+
+    centroids.forEach(d => {
+      activeCentroids.push({
+        type: "Feature",
+        properties: {
+          borough: d.borough,
+          age: 0
+        },
+        geometry: {
+          type: "Point",
+          coordinates: d.coords
+        }
+      });
+    });
+  }
+}
+
+function getFilteredMonthData(key) {
+  const centroidData = (monthlyGroups[key] || []);
+  const incidentData = (incidentGroups[key] || []);
+
+  if (!selectedBorough) {
+    return { centroidData, incidentData };
+  }
+
+  return {
+    centroidData: centroidData.filter(d => d.borough === selectedBorough),
+    incidentData: incidentData.filter(d => d.borough === selectedBorough)
+  };
+}
+
+function beginScrub() {
+  if (isScrubbing) return;
+
+  isScrubbing = true;
+  wasPlayingBeforeScrub = Tone.Transport.state === "started";
+
+  if (wasPlayingBeforeScrub) {
+    Tone.Transport.pause();
+    isPlaying = false;
+    isPaused = true;
+    document.getElementById("playBtn").innerText = "▶ Resume";
+  }
+
+  Object.values(synths).forEach((synth) => {
+    if (synth?.releaseAll) {
+      synth.releaseAll();
+    }
+  });
+}
+
+function scrubTo(index) {
+  if (!monthKeys.length || index < 0 || index >= monthKeys.length) return;
+
+  playbackIndex = index + 1;
+
+  const key = monthKeys[index];
+  rebuildStateUpTo(index);
+  updateMapPoints();
+
+  const centroidSource = map.getSource("centroids");
+  if (centroidSource) {
+    centroidSource.setData({
+      type: "FeatureCollection",
+      features: [...activeCentroids]
+    });
+  }
+
+  updateTimelineLabel(key);
+  map.triggerRepaint();
+}
+
+function endScrub() {
+  if (!isScrubbing) return;
+
+  isScrubbing = false;
+
+  if (wasPlayingBeforeScrub) {
+    Tone.Transport.start();
+    isPlaying = true;
+    isPaused = false;
+    document.getElementById("playBtn").innerText = "⏸ Pause";
+  }
+
+  wasPlayingBeforeScrub = false;
+}
+
+function updateTimelineLabel(key) {
+  const [year, month] = key.split("-");
+  const dateObj = new Date(year, month - 1);
+
+  const pretty = dateObj.toLocaleString("default", {
+    month: "long",
+    year: "numeric"
+  });
+
+  document.getElementById("currentMonth").innerText =
+    `Current Month: ${pretty}`;
+}
+
+function resetMap() {
+  selectedBorough = null;
+
+  // ✅ Show all shooting points again
+  map.setFilter("shootings-layer", null);
+
+  // ✅ Remove borough highlight (glow)
+  map.setFilter("borough-hover", ["==", "borocode", ""]);
+
+  // ✅ Reset zoom to full NYC view
+  map.flyTo({
+    center: [-74.0, 40.72],
+    zoom: 10,
+    duration: 1000
+  });
+
+  // Stop sonification playback
+  Tone.Transport.stop();
+  Tone.Transport.cancel();
+  isPlaying = false;
+  transportReady = false;
+  isPaused = false;
+  playbackIndex = 0;
+
+  document.getElementById("playBtn").innerText = "▶ Play";
+
+  activeFeatures = [];
+  activeCentroids = [];
+
+
+  // CLEAR MAPBOX SOURCES
+  const playbackSource = map.getSource("playback-points");
+  if (playbackSource) {
+    playbackSource.setData({
+      type: "FeatureCollection",
+      features: []
+    });
+  }
+
+  const centroidSource = map.getSource("centroids");
+  if (centroidSource) {
+    centroidSource.setData({
+      type: "FeatureCollection",
+      features: []
+    });
+  }
+
+  // Reset visuals
+  map.setLayoutProperty("shootings-layer", "visibility", "visible");
+
+  // ✅ Reset UI text
+  document.getElementById("selected-borough").innerText =
+    "Select a borough";
+
+  document.getElementById("currentMonth").innerText =
+    "Current Month: Not Started";
+  
+  // Reset timeline
+  document.getElementById("timeline").value = 0;
+
+  map.triggerRepaint();
+}
+
+async function initPlayback() {
+  await initAudio();
+
+  // hide permanent incident layer during playback
+  map.setLayoutProperty("shootings-layer", "visibility", "none");
+
+  map.setLayoutProperty("playback-layer", "visibility", "visible");
+  map.setLayoutProperty("centroid-layer", "visibility", "visible");
+
+  if (transportReady) return;
+  transportReady = true;
+
+  Tone.Transport.cancel();
+  Tone.Transport.bpm.value = bpm;
+
+  Tone.Transport.scheduleRepeat((time) => {
+
+    if (playbackIndex >= monthKeys.length) {
+      Tone.Transport.stop();
+      isPlaying = false;
+      transportReady = false;
+
+      document.getElementById("playBtn").innerText = "▶ Play";
+      document.getElementById("currentMonth").innerText =
+        "Current Month: Finished";
+      return;
+    }
+
+    const key = monthKeys[playbackIndex];
+    updateTimelineLabel(key);
+
+    const timeline = document.getElementById("timeline");
+    if (timeline) timeline.value = playbackIndex;
+
+    let centroidData = monthlyGroups[key] || [];
+    let incidentData = incidentGroups[key] || [];
+
+    if (selectedBorough) {
+
+      centroidData = centroidData.filter(
+        d => d.borough === selectedBorough
+      );
+
+      incidentData = incidentData.filter(
+        d => d.borough === selectedBorough
+      );
+}
+    const boroughCounts = {};
+
+    centroidData.forEach(d => {
+      boroughCounts[d.borough] = (boroughCounts[d.borough] || 0) + d.count;
+    });
+
+    Object.entries(boroughCounts).forEach(([boro, count]) => {
+      const synth = synths[boro];
+      if (!synth) return;
+
+      const note = countToPitch(count);
+      synth.triggerAttackRelease(note, "8n", time);
+    
+      // 🔥 threshold “shell hit”
+      triggerShellHit(count);
+    });
+
+    console.log(key);
+    console.log("incidents", incidentData.length);
+    console.log("centroids", centroidData.length);
+    console.log("KEY:", key);
+    console.log("incident keys sample:", Object.keys(incidentGroups).slice(0,5));
+
+    addMonthPoints(incidentData);
+    updateMapPoints();
+    updateCentroids(centroidData);
+
+    // 🔥 force Mapbox redraw cycle
+    map.triggerRepaint();
+    playbackIndex += 1;
+
+  }, "4n");
+}
+
+async function togglePlayback() {
+  await initPlayback();
+
+  // first play
+  if (!isPlaying && !isPaused) {
+    Tone.Transport.start();
+    isPlaying = true;
+    isPaused = false;
+    document.getElementById("playBtn").innerText = "⏸ Pause";
+    return;
+  }
+
+  // pause
+  if (Tone.Transport.state === "started") {
+    Tone.Transport.pause();
+    isPaused = true;
+    isPlaying = false;
+    document.getElementById("playBtn").innerText = "▶ Resume";
+    return;
+  }
+
+  // resume
+  Tone.Transport.start();
+  isPaused = false;
+  isPlaying = true;
+  document.getElementById("playBtn").innerText = "⏸ Pause";
+}
+
+function openAbout() {
+  document.getElementById("aboutOverlay").style.display = "flex";
+}
+
+function closeAbout() {
+  document.getElementById("aboutOverlay").style.display = "none";
+}
+
+</script>
