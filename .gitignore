@@ -1,2 +1,5 @@
 # videos
 *.mov
+
+# system files
+.DS_Store
